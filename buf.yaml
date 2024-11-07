@@ -1,0 +1,3 @@
+version: v2
+modules:
+  - path: proto  # A pasta onde estão localizados seus arquivos .proto

@@ -1,0 +1,10 @@
+version: v1
+plugins:
+  - name: go # Nome do plugin
+    out: pb # Pra onde vai ser mandado o .go
+    opt:
+      - paths=source_relative # Faz com que não crie uma pasta "proto", apenas pb > [archive].go
+  - name: go-grpc
+    out: pb
+    opt:
+      - paths=source_relative

@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package container;
+
+option go_package = "/pb";
+
+service CommandService {
+  rpc ExecuteCommand(stream CommandRequest) returns (stream CommandResponse);
+}
+
+message CommandRequest {
+  string command = 1;
+}
+
+message CommandResponse {
+  string output = 1;
+}
