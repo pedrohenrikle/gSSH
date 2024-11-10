@@ -8,21 +8,25 @@ import (
 	"io"
 	"log"
 	"os"
-	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials"
 )
 
+var cert = "cert/server.crt"
+
 func main() {
-	fmt.Println("Client running!")
+	fmt.Println("Starting client...")
+
+	// Create the client TLS credentials
+	creds, err := credentials.NewClientTLSFromFile(cert, "")
+	if err != nil {
+		panic(err)
+	}
 
 	dial, err := grpc.NewClient(
 		":50052",
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithConnectParams(grpc.ConnectParams{
-			MinConnectTimeout: 10 * time.Second,
-		}),
+		grpc.WithTransportCredentials(creds),
 	)
 	if err != nil {
 		panic(err)
@@ -35,7 +39,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("Client connected!")
+	fmt.Println("Client connected with TCL/SSL!")
 
 	// anonymous function to recive the responses
 	done := make(chan bool)

@@ -14,11 +14,17 @@ import (
 	"github.com/creack/pty"
 	"golang.org/x/term"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 type Server struct {
 	pb.UnimplementedCommandServiceServer
 }
+
+var (
+	crt = "cert/server.crt"
+	key = "cert/server.key"
+)
 
 func (s *Server) ExecuteCommand(stream pb.CommandService_ExecuteCommandServer) error {
 	// start a bash session
@@ -70,6 +76,15 @@ func (s *Server) ExecuteCommand(stream pb.CommandService_ExecuteCommandServer) e
 		}
 	}()
 
+	// goroutine to monitorate the bash process
+	go func() {
+		if err := bashSession.Wait(); err != nil {
+			log.Println("Sessão bash encerrada:", err)
+		}
+		// Envia mensagem especial de término da sessão ao cliente
+		stream.Send(&pb.CommandResponse{Output: "Sessão encerrada"})
+	}()
+
 	// loop to recive client commands and copy to pty
 	for {
 		req, err := stream.Recv()
@@ -95,9 +110,15 @@ func main() {
 	}
 	defer socket.Close()
 
-	fmt.Println("Listening on :50052...")
+	// create the TLS credentials
+	creds, err := credentials.NewServerTLSFromFile(crt, key)
+	if err != nil {
+		panic(err)
+	}
 
-	s := grpc.NewServer()
+	fmt.Println("Listening on :50052 with TCL/SSL...")
+
+	s := grpc.NewServer(grpc.Creds(creds))
 	pb.RegisterCommandServiceServer(s, &Server{})
 
 	fmt.Println("Serving gRPC...")

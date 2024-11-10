@@ -1,1 +1,7 @@
 ideia.txt
+
+# Arquivos de chaves e certificados
+*.key
+*.crt
+*.csr
+*.cnf
