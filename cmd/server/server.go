@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -18,7 +19,12 @@ import (
 )
 
 type Server struct {
-	pb.UnimplementedCommandServiceServer
+	pb.UnimplementedTerminalServiceServer
+}
+
+type BashSession struct {
+	Id              string
+	TerminalCommand *os.File
 }
 
 var (
@@ -26,7 +32,9 @@ var (
 	key = "cert/server.key"
 )
 
-func (s *Server) ExecuteCommand(stream pb.CommandService_ExecuteCommandServer) error {
+var sessionMap = make(map[string]BashSession, 1)
+
+func (s *Server) ExecuteCommand(stream pb.TerminalService_ExecuteCommandServer) error {
 	// start a bash session
 	bashSession := exec.Command("bash")
 	ptmx, err := pty.Start(bashSession)
@@ -118,8 +126,11 @@ func main() {
 
 	fmt.Println("Listening on :50052 with TCL/SSL...")
 
+	http.HandleFunc("/cert", func(w http.ResponseWriter, r *http.Request) { http.ServeFile(w, r, "./cert/server.crt") })
+	go http.ListenAndServe("localhost:8080", nil)
+
 	s := grpc.NewServer(grpc.Creds(creds))
-	pb.RegisterCommandServiceServer(s, &Server{})
+	pb.RegisterTerminalServiceServer(s, &Server{})
 
 	fmt.Println("Serving gRPC...")
 

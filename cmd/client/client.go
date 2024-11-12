@@ -3,29 +3,53 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"gSSH/pb"
 	"io"
 	"log"
+	"net/http"
 	"os"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
 
-var cert = "cert/server.crt"
+var url = "http://localhost:8080/cert"
+
+func fetchCertificate(url string) ([]byte, error) { // perform a GET request to fetch the certificate
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch cert: %v", err)
+	}
+	defer resp.Body.Close() // read the response body
+	cert, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read cert body: %v", err)
+	}
+	return cert, nil
+}
 
 func main() {
 	fmt.Println("Starting client...")
 
-	// Create the client TLS credentials
-	creds, err := credentials.NewClientTLSFromFile(cert, "")
+	cert, err := fetchCertificate(url)
 	if err != nil {
-		panic(err)
+		log.Fatalf("failed to fetch cert: %v", err)
 	}
 
+	// Create a certificate pool
+	certPool := x509.NewCertPool()
+	if ok := certPool.AppendCertsFromPEM(cert); !ok {
+		log.Fatalf("failed to append cert to pool")
+	}
+
+	// Create TLS credentials
+	creds := credentials.NewTLS(&tls.Config{RootCAs: certPool})
+
 	dial, err := grpc.NewClient(
-		":50052",
+		"localhost:50052",
 		grpc.WithTransportCredentials(creds),
 	)
 	if err != nil {
@@ -33,13 +57,26 @@ func main() {
 	}
 	defer dial.Close()
 
-	client := pb.NewCommandServiceClient(dial)
+	client := pb.NewTerminalServiceClient(dial)
+
+	sessionRes, err := client.RequestSession(context.Background(), &pb.SessionRequest{})
+	if err != nil {
+		log.Fatalf("failed to request session: %v", err)
+	}
+
+	if sessionRes.SessionStatus == pb.SessionStatus_IN_USE {
+		log.Fatalf("requested session in use: %v", sessionRes.Id)
+	}
+
+	if sessionRes.SessionStatus == pb.SessionStatus_TERMINATED {
+		log.Fatalf("requested session terminated but not cleaned up: %v", sessionRes.Id)
+	}
 
 	stream, err := client.ExecuteCommand(context.Background())
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("Client connected with TCL/SSL!")
+	fmt.Println("Client connected with TLS/SSL!")
 
 	// anonymous function to recive the responses
 	done := make(chan bool)

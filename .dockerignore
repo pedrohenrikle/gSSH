@@ -1,0 +1,12 @@
+# Ignorar a pasta cert
+cert/
+
+# Ignorar a pasta .git
+.git/
+
+# Ignorar arquivos temporários ou de build
+out/
+*.log
+
+# Ignorar outros arquivos ou diretórios específicos
+ide*

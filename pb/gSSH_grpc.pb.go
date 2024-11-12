@@ -19,27 +19,29 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	CommandService_ExecuteCommand_FullMethodName = "/container.CommandService/ExecuteCommand"
+	TerminalService_ExecuteCommand_FullMethodName = "/container.TerminalService/ExecuteCommand"
+	TerminalService_RequestSession_FullMethodName = "/container.TerminalService/RequestSession"
 )
 
-// CommandServiceClient is the client API for CommandService service.
+// TerminalServiceClient is the client API for TerminalService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-type CommandServiceClient interface {
+type TerminalServiceClient interface {
 	ExecuteCommand(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[CommandRequest, CommandResponse], error)
+	RequestSession(ctx context.Context, in *SessionRequest, opts ...grpc.CallOption) (*SessionResponse, error)
 }
 
-type commandServiceClient struct {
+type terminalServiceClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewCommandServiceClient(cc grpc.ClientConnInterface) CommandServiceClient {
-	return &commandServiceClient{cc}
+func NewTerminalServiceClient(cc grpc.ClientConnInterface) TerminalServiceClient {
+	return &terminalServiceClient{cc}
 }
 
-func (c *commandServiceClient) ExecuteCommand(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[CommandRequest, CommandResponse], error) {
+func (c *terminalServiceClient) ExecuteCommand(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[CommandRequest, CommandResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &CommandService_ServiceDesc.Streams[0], CommandService_ExecuteCommand_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &TerminalService_ServiceDesc.Streams[0], TerminalService_ExecuteCommand_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -48,65 +50,102 @@ func (c *commandServiceClient) ExecuteCommand(ctx context.Context, opts ...grpc.
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type CommandService_ExecuteCommandClient = grpc.BidiStreamingClient[CommandRequest, CommandResponse]
+type TerminalService_ExecuteCommandClient = grpc.BidiStreamingClient[CommandRequest, CommandResponse]
 
-// CommandServiceServer is the server API for CommandService service.
-// All implementations must embed UnimplementedCommandServiceServer
-// for forward compatibility.
-type CommandServiceServer interface {
-	ExecuteCommand(grpc.BidiStreamingServer[CommandRequest, CommandResponse]) error
-	mustEmbedUnimplementedCommandServiceServer()
+func (c *terminalServiceClient) RequestSession(ctx context.Context, in *SessionRequest, opts ...grpc.CallOption) (*SessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SessionResponse)
+	err := c.cc.Invoke(ctx, TerminalService_RequestSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
-// UnimplementedCommandServiceServer must be embedded to have
+// TerminalServiceServer is the server API for TerminalService service.
+// All implementations must embed UnimplementedTerminalServiceServer
+// for forward compatibility.
+type TerminalServiceServer interface {
+	ExecuteCommand(grpc.BidiStreamingServer[CommandRequest, CommandResponse]) error
+	RequestSession(context.Context, *SessionRequest) (*SessionResponse, error)
+	mustEmbedUnimplementedTerminalServiceServer()
+}
+
+// UnimplementedTerminalServiceServer must be embedded to have
 // forward compatible implementations.
 //
 // NOTE: this should be embedded by value instead of pointer to avoid a nil
 // pointer dereference when methods are called.
-type UnimplementedCommandServiceServer struct{}
+type UnimplementedTerminalServiceServer struct{}
 
-func (UnimplementedCommandServiceServer) ExecuteCommand(grpc.BidiStreamingServer[CommandRequest, CommandResponse]) error {
+func (UnimplementedTerminalServiceServer) ExecuteCommand(grpc.BidiStreamingServer[CommandRequest, CommandResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method ExecuteCommand not implemented")
 }
-func (UnimplementedCommandServiceServer) mustEmbedUnimplementedCommandServiceServer() {}
-func (UnimplementedCommandServiceServer) testEmbeddedByValue()                        {}
+func (UnimplementedTerminalServiceServer) RequestSession(context.Context, *SessionRequest) (*SessionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RequestSession not implemented")
+}
+func (UnimplementedTerminalServiceServer) mustEmbedUnimplementedTerminalServiceServer() {}
+func (UnimplementedTerminalServiceServer) testEmbeddedByValue()                         {}
 
-// UnsafeCommandServiceServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to CommandServiceServer will
+// UnsafeTerminalServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to TerminalServiceServer will
 // result in compilation errors.
-type UnsafeCommandServiceServer interface {
-	mustEmbedUnimplementedCommandServiceServer()
+type UnsafeTerminalServiceServer interface {
+	mustEmbedUnimplementedTerminalServiceServer()
 }
 
-func RegisterCommandServiceServer(s grpc.ServiceRegistrar, srv CommandServiceServer) {
-	// If the following call pancis, it indicates UnimplementedCommandServiceServer was
+func RegisterTerminalServiceServer(s grpc.ServiceRegistrar, srv TerminalServiceServer) {
+	// If the following call pancis, it indicates UnimplementedTerminalServiceServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
 	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
 		t.testEmbeddedByValue()
 	}
-	s.RegisterService(&CommandService_ServiceDesc, srv)
+	s.RegisterService(&TerminalService_ServiceDesc, srv)
 }
 
-func _CommandService_ExecuteCommand_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(CommandServiceServer).ExecuteCommand(&grpc.GenericServerStream[CommandRequest, CommandResponse]{ServerStream: stream})
+func _TerminalService_ExecuteCommand_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(TerminalServiceServer).ExecuteCommand(&grpc.GenericServerStream[CommandRequest, CommandResponse]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type CommandService_ExecuteCommandServer = grpc.BidiStreamingServer[CommandRequest, CommandResponse]
+type TerminalService_ExecuteCommandServer = grpc.BidiStreamingServer[CommandRequest, CommandResponse]
 
-// CommandService_ServiceDesc is the grpc.ServiceDesc for CommandService service.
+func _TerminalService_RequestSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TerminalServiceServer).RequestSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TerminalService_RequestSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TerminalServiceServer).RequestSession(ctx, req.(*SessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// TerminalService_ServiceDesc is the grpc.ServiceDesc for TerminalService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var CommandService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "container.CommandService",
-	HandlerType: (*CommandServiceServer)(nil),
-	Methods:     []grpc.MethodDesc{},
+var TerminalService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "container.TerminalService",
+	HandlerType: (*TerminalServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "RequestSession",
+			Handler:    _TerminalService_RequestSession_Handler,
+		},
+	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "ExecuteCommand",
-			Handler:       _CommandService_ExecuteCommand_Handler,
+			Handler:       _TerminalService_ExecuteCommand_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},
