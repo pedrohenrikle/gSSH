@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -117,6 +118,9 @@ func main() {
 	}
 
 	fmt.Println("Listening on :50052 with TCL/SSL...")
+
+	http.HandleFunc("/cert", func(w http.ResponseWriter, r *http.Request) { http.ServeFile(w, r, "./cert/server.crt") })
+	go http.ListenAndServe("localhost:8080", nil)
 
 	s := grpc.NewServer(grpc.Creds(creds))
 	pb.RegisterCommandServiceServer(s, &Server{})
