@@ -69,8 +69,6 @@ func main() {
 	var sessionRes *pb.SessionResponse
 	sessionRes, err = client.RequestSession(context.Background(), &pb.SessionRequest{Id: sessionID})
 
-	fmt.Printf(sessionRes.SessionStatus.String())
-
 	if err != nil {
 		log.Fatalf("failed to request session: %v", err)
 	}
