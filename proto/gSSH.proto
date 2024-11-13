@@ -4,14 +4,31 @@ package container;
 
 option go_package = "/pb";
 
-service CommandService {
+service TerminalService {
   rpc ExecuteCommand(stream CommandRequest) returns (stream CommandResponse);
+  rpc RequestSession(SessionRequest) returns (SessionResponse);
 }
 
 message CommandRequest {
   string command = 1;
+  string sessionId = 2;
 }
 
 message CommandResponse {
   string output = 1;
+}
+
+message SessionRequest {
+  optional string id = 1;
+}
+
+enum SessionStatus {
+  AVAILABLE = 0;
+  IN_USE = 1;
+  TERMINATED = 2;
+}
+
+message SessionResponse {
+  string id = 1;
+  SessionStatus sessionStatus = 2;
 }
