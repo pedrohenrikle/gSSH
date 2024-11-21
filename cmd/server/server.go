@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	env "gSSH/cmd"
 	"gSSH/pb"
 	"io"
 	"log"
@@ -10,9 +11,12 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
 	"syscall"
 
 	"github.com/creack/pty"
+	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
 	"golang.org/x/term"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -23,9 +27,21 @@ type Server struct {
 }
 
 var (
-	crt = "cert/server.crt"
-	key = "cert/server.key"
+	crt         = "cert/server.crt"
+	key         = "cert/server.key"
+	environment = env.NewEnv()
 )
+
+func init() {
+	viper.SetDefault("port", environment.ServerPort)
+
+	pflag.Int("port", environment.ServerPort, "Port to run the TCP connection")
+	pflag.Parse()
+
+	viper.BindPFlag("port", pflag.Lookup("port"))
+
+	viper.BindEnv("port", "SERVER_PORT")
+}
 
 func (s *Server) ExecuteCommand(stream pb.CommandService_ExecuteCommandServer) error {
 	// start a bash session
@@ -104,8 +120,12 @@ func (s *Server) ExecuteCommand(stream pb.CommandService_ExecuteCommandServer) e
 }
 
 func main() {
-	fmt.Println("Starting server...")
-	socket, err := net.Listen("tcp", ":50052")
+	port := viper.GetInt("port")
+
+	address := fmt.Sprintf("%s:%d", environment.ServerAddress, port)
+	fmt.Printf("Starting server on address: %s...\n", address)
+
+	socket, err := net.Listen("tcp", address)
 	if err != nil {
 		panic(err)
 	}
@@ -117,10 +137,15 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Println("Listening on :50052 with TCL/SSL...")
+	fmt.Printf("Listening on %s with TLS...\n", address)
 
+	// combine ServerAddress and ServerCertPort to create certAddress
+	certPortStr := strconv.Itoa(environment.ServerCertPort)
+	certAddress := environment.ServerAddress + ":" + certPortStr
+
+	// serve the certificate via HTTP
 	http.HandleFunc("/cert", func(w http.ResponseWriter, r *http.Request) { http.ServeFile(w, r, "./cert/server.crt") })
-	go http.ListenAndServe("localhost:8080", nil)
+	go http.ListenAndServe(certAddress, nil)
 
 	s := grpc.NewServer(grpc.Creds(creds))
 	pb.RegisterCommandServiceServer(s, &Server{})

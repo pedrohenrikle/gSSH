@@ -6,24 +6,44 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	env "gSSH/cmd"
 	"gSSH/pb"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 
+	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
 
-var url = "http://localhost:8080/cert"
+var environment = env.NewEnv()
 
-func fetchCertificate(url string) ([]byte, error) { // perform a GET request to fetch the certificate
-	resp, err := http.Get(url)
+func init() {
+	viper.SetDefault("port", environment.ServerPort)
+
+	pflag.Int("port", environment.ServerPort, "Port to run the TCP connection")
+	pflag.Parse()
+
+	viper.BindPFlag("port", pflag.Lookup("port"))
+
+	viper.BindEnv("port", "SERVER_PORT")
+}
+
+func fetchCertificate(url string) ([]byte, error) { // Perform a GET request to fetch the certificate
+	resp, err := http.Get("http://" + url + "/cert")
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch cert: %v", err)
 	}
-	defer resp.Body.Close() // read the response body
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to fetch cert: server returned %v", resp.Status)
+	}
+
 	cert, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read cert body: %v", err)
@@ -32,24 +52,35 @@ func fetchCertificate(url string) ([]byte, error) { // perform a GET request to 
 }
 
 func main() {
-	fmt.Println("Starting client...")
+	port := viper.GetInt("port")
 
-	cert, err := fetchCertificate(url)
+	address := fmt.Sprintf(":%d", port)
+
+	fmt.Printf("Starting client on address: %s...\n", address)
+
+	certPortStr := strconv.Itoa(environment.ServerCertPort)
+	certAddress := environment.ServerAddress + ":" + certPortStr
+
+	cert, err := fetchCertificate(certAddress)
 	if err != nil {
 		log.Fatalf("failed to fetch cert: %v", err)
 	}
 
+	fmt.Println("Certificate fetched successfully.")
+
 	// Create a certificate pool
 	certPool := x509.NewCertPool()
 	if ok := certPool.AppendCertsFromPEM(cert); !ok {
-		log.Fatalf("failed to append cert to pool")
+		log.Fatalf("failed to append cert to pool: invalid PEM format or empty certificate")
 	}
 
 	// Create TLS credentials
 	creds := credentials.NewTLS(&tls.Config{RootCAs: certPool})
 
-	dial, err := grpc.NewClient(
-		"localhost:50052",
+	TCPaddress := fmt.Sprintf("%s:%d", environment.ServerAddress, port)
+
+	dial, err := grpc.Dial(
+		TCPaddress,
 		grpc.WithTransportCredentials(creds),
 	)
 	if err != nil {
@@ -63,9 +94,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("Client connected with TLS/SSL!")
+	fmt.Println("Client connected with TLS!")
 
-	// anonymous function to recive the responses
+	// Anonymous function to receive the responses
 	done := make(chan bool)
 	go func() {
 		for {
@@ -90,9 +121,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("error sending command: %v", err)
 		}
-
 	}
 
 	<-done
-
 }
