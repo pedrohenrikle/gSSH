@@ -10,4 +10,3 @@ RUN openssl req -x509 -newkey rsa:4096 -keyout /app/cert/server.key -out /app/ce
 COPY cmd /app
 
 COPY pb /app
-
