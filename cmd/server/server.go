@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	env "gSSH/cmd"
 	"gSSH/pb"
 	"io"
 	"log"
@@ -11,12 +12,15 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
 	"sync"
 	"syscall"
-	"time"
 
 	"github.com/creack/pty"
-	"golang.org/x/term"
+	"github.com/google/uuid"
+	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -37,19 +41,31 @@ type BashSession struct {
 }
 
 var (
-	crt = "cert/server.crt"
-	key = "cert/server.key"
+	crt         = "cert/server.crt"
+	key         = "cert/server.key"
+	environment = env.NewEnv()
 )
 
+func init() {
+	viper.SetDefault("port", environment.ServerPort)
+
+	pflag.Int("port", environment.ServerPort, "Port to run the TCP connection")
+	pflag.Parse()
+
+	viper.BindPFlag("port", pflag.Lookup("port"))
+
+	viper.BindEnv("port", "SERVER_PORT")
+}
+
 func generateSessionId() string {
-	fmt.Println(time.Now().UnixNano())
-	return fmt.Sprintf("%d", time.Now().UnixNano())
+	id := uuid.New()
+	return id.String()
 }
 
 func (s *Server) RequestSession(ctx context.Context, req *pb.SessionRequest) (*pb.SessionResponse, error) {
 	var sessionId string
 
-	if req.Id != nil {
+	if req.GetId() != "" {
 		sessionId = req.GetId()
 		fmt.Printf("Requested sessionId: %s\n", sessionId)
 	} else {
@@ -80,12 +96,18 @@ func (s *Server) RequestSession(ctx context.Context, req *pb.SessionRequest) (*p
 			return nil, err
 		}
 
-		termState, err := term.MakeRaw(int(ptmx.Fd()))
-		if err != nil {
-			fmt.Printf("Failed to set raw mode for %s: %v\n", sessionId, err)
+		// Disable the "echo" from commands
+		var termState *unix.Termios
+		if termState, err = unix.IoctlGetTermios(int(ptmx.Fd()), unix.TCGETS); err != nil {
+			fmt.Printf("Failed to get terminal attributes for %s: %v\n", sessionId, err)
 			return nil, err
 		}
-		defer term.Restore(int(ptmx.Fd()), termState)
+		termState.Lflag &^= unix.ECHO
+		if err = unix.IoctlSetTermios(int(ptmx.Fd()), unix.TCSETS, termState); err != nil {
+			fmt.Printf("Failed to set terminal attributes for %s: %v\n", sessionId, err)
+			return nil, err
+		}
+		defer func() { _ = unix.IoctlSetTermios(int(ptmx.Fd()), unix.TCSETS, termState) }()
 
 		ch := make(chan os.Signal, 1)
 		signal.Notify(ch, syscall.SIGWINCH)
@@ -117,9 +139,6 @@ func (s *Server) RequestSession(ctx context.Context, req *pb.SessionRequest) (*p
 }
 
 func (s *Server) ExecuteCommand(stream pb.TerminalService_ExecuteCommandServer) error {
-	var bashSession *BashSession
-	var err error
-
 	req, err := stream.Recv()
 	if err != nil {
 		return status.Errorf(codes.InvalidArgument, "failed to receive initial request: %v", err)
@@ -136,9 +155,11 @@ func (s *Server) ExecuteCommand(stream pb.TerminalService_ExecuteCommandServer) 
 	}
 	bashSession.InUse = true // Mark session as in use
 	s.sessionMux.Unlock()
+
 	fmt.Printf("Marked session %s as in use during ExecuteCommand.\n", sessionId)
 
 	ptmx := bashSession.Ptmx
+	defer func() { _ = ptmx.Close() }()
 
 	// Goroutine to send the session output to client
 	go func() {
@@ -183,8 +204,12 @@ func (s *Server) ExecuteCommand(stream pb.TerminalService_ExecuteCommandServer) 
 }
 
 func main() {
-	fmt.Println("Starting server...")
-	socket, err := net.Listen("tcp", ":50052")
+	port := viper.GetInt("port")
+
+	address := fmt.Sprintf("%s:%d", environment.ServerAddress, port)
+	fmt.Printf("Starting server on address: %s...\n", address)
+
+	socket, err := net.Listen("tcp", address)
 	if err != nil {
 		panic(err)
 	}
@@ -195,11 +220,15 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Println("Listening on :50052 with TLS/SSL...")
+	fmt.Printf("Listening on %s with TLS...\n", address)
 
-	// HTTP server to send certificate to client
+	// Combine ServerAddress and ServerCertPort to create certAddress
+	certPortStr := strconv.Itoa(environment.ServerCertPort)
+	certAddress := environment.ServerAddress + ":" + certPortStr
+
+	// Serve the certificate via HTTP
 	http.HandleFunc("/cert", func(w http.ResponseWriter, r *http.Request) { http.ServeFile(w, r, "./cert/server.crt") })
-	go http.ListenAndServe("localhost:8080", nil)
+	go http.ListenAndServe(certAddress, nil)
 
 	server := &Server{
 		sessions: make(map[string]*BashSession),
