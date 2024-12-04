@@ -9,18 +9,12 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"os"
-	"os/exec"
-	"os/signal"
 	"strconv"
 	"sync"
-	"syscall"
 
-	"github.com/creack/pty"
 	"github.com/google/uuid"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
-	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -31,13 +25,6 @@ type Server struct {
 	pb.UnimplementedTerminalServiceServer
 	sessions   map[string]*BashSession
 	sessionMux sync.Mutex
-}
-
-type BashSession struct {
-	Id              string
-	TerminalCommand *exec.Cmd
-	Ptmx            *os.File
-	InUse           bool
 }
 
 var (
@@ -88,47 +75,13 @@ func (s *Server) RequestSession(ctx context.Context, req *pb.SessionRequest) (*p
 			fmt.Printf("Marked session %s as in use.\n", sessionId)
 		}
 	} else {
-		// Initialize a bash session and a PTY session
-		bashSession := exec.Command("bash")
-		ptmx, err := pty.Start(bashSession)
+		newSession, err := (&BashSession{}).New(s, sessionId)
 		if err != nil {
-			fmt.Printf("Failed to start bash session for %s: %v\n", sessionId, err)
+			fmt.Printf("Oops, apparently something went wrong: %s", err)
 			return nil, err
 		}
 
-		// Disable the "echo" from commands
-		var termState *unix.Termios
-		if termState, err = unix.IoctlGetTermios(int(ptmx.Fd()), unix.TCGETS); err != nil {
-			fmt.Printf("Failed to get terminal attributes for %s: %v\n", sessionId, err)
-			return nil, err
-		}
-		termState.Lflag &^= unix.ECHO
-		if err = unix.IoctlSetTermios(int(ptmx.Fd()), unix.TCSETS, termState); err != nil {
-			fmt.Printf("Failed to set terminal attributes for %s: %v\n", sessionId, err)
-			return nil, err
-		}
-		defer func() { _ = unix.IoctlSetTermios(int(ptmx.Fd()), unix.TCSETS, termState) }()
-
-		ch := make(chan os.Signal, 1)
-		signal.Notify(ch, syscall.SIGWINCH)
-
-		// This ensures that the PTY adjusts to terminal window size changes.
-		go func() {
-			for range ch {
-				if err := pty.InheritSize(os.Stdin, ptmx); err != nil {
-					log.Fatalf("error trying to resize the PTY: %v", err)
-				}
-			}
-		}()
-		ch <- syscall.SIGWINCH
-		defer func() { signal.Stop(ch); close(ch) }()
-
-		s.sessions[sessionId] = &BashSession{
-			Id:              sessionId,
-			TerminalCommand: bashSession,
-			Ptmx:            ptmx,
-			InUse:           true, // Mark session as in use
-		}
+		s.sessions[sessionId] = newSession
 		fmt.Printf("Created new session %s and marked as in use.\n", sessionId)
 	}
 
