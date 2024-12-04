@@ -5,10 +5,13 @@ import (
 	"fmt"
 	env "gSSH/cmd"
 	"gSSH/pb"
+	"gSSH/pkg/session"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"os/exec"
 	"strconv"
 	"sync"
 
@@ -23,8 +26,15 @@ import (
 
 type Server struct {
 	pb.UnimplementedTerminalServiceServer
-	sessions   map[string]*BashSession
+	sessions   map[string]*session.BashSession
 	sessionMux sync.Mutex
+}
+
+type BashSession struct {
+	Id              string
+	TerminalCommand *exec.Cmd
+	Ptmx            *os.File
+	InUse           bool
 }
 
 var (
@@ -70,15 +80,11 @@ func (s *Server) RequestSession(ctx context.Context, req *pb.SessionRequest) (*p
 				Id:            sessionId,
 				SessionStatus: pb.SessionStatus_IN_USE,
 			}, nil
-		} else {
-			session.InUse = true // Mark session as in use
-			fmt.Printf("Marked session %s as in use.\n", sessionId)
 		}
 	} else {
-		newSession, err := (&BashSession{}).New(s, sessionId)
+		newSession, err := session.New(sessionId)
 		if err != nil {
-			fmt.Printf("Oops, apparently something went wrong: %s", err)
-			return nil, err
+			return &pb.SessionResponse{}, err
 		}
 
 		s.sessions[sessionId] = newSession
@@ -156,6 +162,37 @@ func (s *Server) ExecuteCommand(stream pb.TerminalService_ExecuteCommandServer) 
 	}
 }
 
+func (s *Server) MakeSessionAvailable(ctx context.Context, req *pb.SessionRequest) (*pb.SessionResponse, error) {
+	sessionId := req.Id
+
+	s.sessionMux.Lock()
+	defer s.sessionMux.Unlock()
+
+	if session, ok := s.sessions[*sessionId]; ok {
+		if session.Ptmx != nil {
+			if err := session.Ptmx.Close(); err != nil {
+				return nil, fmt.Errorf("failed to close PTY: %v", err)
+			}
+
+			newSession, _ := session.New(*sessionId)
+			newSession.InUse = false
+			s.sessions[*sessionId] = newSession
+		}
+
+		fmt.Printf("Session liberated for use: %s", *sessionId)
+		fmt.Printf("%v", s.sessions[*sessionId])
+		return &pb.SessionResponse{
+			Id:            *sessionId,
+			SessionStatus: pb.SessionStatus_AVAILABLE,
+		}, nil
+	}
+
+	return &pb.SessionResponse{
+		Id:            *sessionId,
+		SessionStatus: pb.SessionStatus_TERMINATED,
+	}, nil
+}
+
 func main() {
 	port := viper.GetInt("port")
 
@@ -184,7 +221,7 @@ func main() {
 	go http.ListenAndServe(certAddress, nil)
 
 	server := &Server{
-		sessions: make(map[string]*BashSession),
+		sessions: make(map[string]*session.BashSession),
 	}
 
 	s := grpc.NewServer(grpc.Creds(creds))
