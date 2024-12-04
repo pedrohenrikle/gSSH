@@ -5,22 +5,19 @@ import (
 	"fmt"
 	env "gSSH/cmd"
 	"gSSH/pb"
+	"gSSH/pkg/session"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
-	"os/signal"
 	"strconv"
 	"sync"
-	"syscall"
 
-	"github.com/creack/pty"
 	"github.com/google/uuid"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
-	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -29,7 +26,7 @@ import (
 
 type Server struct {
 	pb.UnimplementedTerminalServiceServer
-	sessions   map[string]*BashSession
+	sessions   map[string]*session.BashSession
 	sessionMux sync.Mutex
 }
 
@@ -83,52 +80,14 @@ func (s *Server) RequestSession(ctx context.Context, req *pb.SessionRequest) (*p
 				Id:            sessionId,
 				SessionStatus: pb.SessionStatus_IN_USE,
 			}, nil
-		} else {
-			session.InUse = true // Mark session as in use
-			fmt.Printf("Marked session %s as in use.\n", sessionId)
 		}
 	} else {
-		// Initialize a bash session and a PTY session
-		bashSession := exec.Command("bash")
-		ptmx, err := pty.Start(bashSession)
+		newSession, err := session.New(sessionId)
 		if err != nil {
-			fmt.Printf("Failed to start bash session for %s: %v\n", sessionId, err)
-			return nil, err
+			return &pb.SessionResponse{}, err
 		}
 
-		// Disable the "echo" from commands
-		var termState *unix.Termios
-		if termState, err = unix.IoctlGetTermios(int(ptmx.Fd()), unix.TCGETS); err != nil {
-			fmt.Printf("Failed to get terminal attributes for %s: %v\n", sessionId, err)
-			return nil, err
-		}
-		termState.Lflag &^= unix.ECHO
-		if err = unix.IoctlSetTermios(int(ptmx.Fd()), unix.TCSETS, termState); err != nil {
-			fmt.Printf("Failed to set terminal attributes for %s: %v\n", sessionId, err)
-			return nil, err
-		}
-		defer func() { _ = unix.IoctlSetTermios(int(ptmx.Fd()), unix.TCSETS, termState) }()
-
-		ch := make(chan os.Signal, 1)
-		signal.Notify(ch, syscall.SIGWINCH)
-
-		// This ensures that the PTY adjusts to terminal window size changes.
-		go func() {
-			for range ch {
-				if err := pty.InheritSize(os.Stdin, ptmx); err != nil {
-					log.Fatalf("error trying to resize the PTY: %v", err)
-				}
-			}
-		}()
-		ch <- syscall.SIGWINCH
-		defer func() { signal.Stop(ch); close(ch) }()
-
-		s.sessions[sessionId] = &BashSession{
-			Id:              sessionId,
-			TerminalCommand: bashSession,
-			Ptmx:            ptmx,
-			InUse:           true, // Mark session as in use
-		}
+		s.sessions[sessionId] = newSession
 		fmt.Printf("Created new session %s and marked as in use.\n", sessionId)
 	}
 
@@ -203,6 +162,37 @@ func (s *Server) ExecuteCommand(stream pb.TerminalService_ExecuteCommandServer) 
 	}
 }
 
+func (s *Server) MakeSessionAvailable(ctx context.Context, req *pb.SessionRequest) (*pb.SessionResponse, error) {
+	sessionId := req.Id
+
+	s.sessionMux.Lock()
+	defer s.sessionMux.Unlock()
+
+	if session, ok := s.sessions[*sessionId]; ok {
+		if session.Ptmx != nil {
+			if err := session.Ptmx.Close(); err != nil {
+				return nil, fmt.Errorf("failed to close PTY: %v", err)
+			}
+
+			newSession, _ := session.New(*sessionId)
+			newSession.InUse = false
+			s.sessions[*sessionId] = newSession
+		}
+
+		fmt.Printf("Session liberated for use: %s", *sessionId)
+		fmt.Printf("%v", s.sessions[*sessionId])
+		return &pb.SessionResponse{
+			Id:            *sessionId,
+			SessionStatus: pb.SessionStatus_AVAILABLE,
+		}, nil
+	}
+
+	return &pb.SessionResponse{
+		Id:            *sessionId,
+		SessionStatus: pb.SessionStatus_TERMINATED,
+	}, nil
+}
+
 func main() {
 	port := viper.GetInt("port")
 
@@ -231,7 +221,7 @@ func main() {
 	go http.ListenAndServe(certAddress, nil)
 
 	server := &Server{
-		sessions: make(map[string]*BashSession),
+		sessions: make(map[string]*session.BashSession),
 	}
 
 	s := grpc.NewServer(grpc.Creds(creds))

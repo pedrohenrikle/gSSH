@@ -7,6 +7,7 @@ option go_package = "/pb";
 service TerminalService {
   rpc ExecuteCommand(stream CommandRequest) returns (stream CommandResponse);
   rpc RequestSession(SessionRequest) returns (SessionResponse);
+  rpc MakeSessionAvailable(SessionRequest) returns (SessionResponse);
 }
 
 message CommandRequest {

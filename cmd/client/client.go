@@ -12,7 +12,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -65,7 +67,6 @@ func main() {
 	sessionID := viper.GetString("id")
 
 	address := fmt.Sprintf(":%d", port)
-
 	fmt.Printf("Starting client on address: %s...\n", address)
 
 	certPortStr := strconv.Itoa(environment.ServerCertPort)
@@ -83,7 +84,6 @@ func main() {
 	}
 
 	creds := credentials.NewTLS(&tls.Config{RootCAs: certPool})
-
 	TCPaddress := fmt.Sprintf("%s:%d", environment.ServerAddress, port)
 
 	socket, err := grpc.NewClient(
@@ -97,16 +97,15 @@ func main() {
 
 	client := pb.NewTerminalServiceClient(socket)
 
-	var sessionRes *pb.SessionResponse
-	fmt.Printf("sessionID: %s\n", sessionID)
-	sessionRes, err = client.RequestSession(context.Background(), &pb.SessionRequest{Id: &sessionID})
-
+	sessionRes, err := client.RequestSession(context.Background(), &pb.SessionRequest{Id: &sessionID})
 	if err != nil {
-		log.Fatalf("failed to request session: %v", err)
+		log.Fatalf("Failed to request session: %v", err)
 	}
 
+	fmt.Printf("SessionID: %s\n", sessionRes.Id)
+
 	if sessionRes.SessionStatus != pb.SessionStatus_AVAILABLE {
-		log.Fatalf("session not available: %v", sessionRes.SessionStatus)
+		log.Fatalf("Session not available: %v", sessionRes.SessionStatus)
 	}
 
 	// Update sessionID with the ID received from the server if it was generated there
@@ -119,6 +118,19 @@ func main() {
 		panic(err)
 	}
 	fmt.Println("Client connected with TLS!")
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		sig := <-sigs
+		fmt.Printf("\nReceived signal: %s. Shutting down...\n", sig)
+
+		if _, err := client.MakeSessionAvailable(context.Background(), &pb.SessionRequest{Id: &sessionID}); err != nil {
+			log.Fatalf("failed to make session available: %v", err)
+		}
+		os.Exit(0)
+	}()
 
 	// Anonymous function to receive the responses
 	done := make(chan bool)

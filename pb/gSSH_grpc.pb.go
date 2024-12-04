@@ -19,8 +19,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	TerminalService_ExecuteCommand_FullMethodName = "/container.TerminalService/ExecuteCommand"
-	TerminalService_RequestSession_FullMethodName = "/container.TerminalService/RequestSession"
+	TerminalService_ExecuteCommand_FullMethodName       = "/container.TerminalService/ExecuteCommand"
+	TerminalService_RequestSession_FullMethodName       = "/container.TerminalService/RequestSession"
+	TerminalService_MakeSessionAvailable_FullMethodName = "/container.TerminalService/MakeSessionAvailable"
 )
 
 // TerminalServiceClient is the client API for TerminalService service.
@@ -29,6 +30,7 @@ const (
 type TerminalServiceClient interface {
 	ExecuteCommand(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[CommandRequest, CommandResponse], error)
 	RequestSession(ctx context.Context, in *SessionRequest, opts ...grpc.CallOption) (*SessionResponse, error)
+	MakeSessionAvailable(ctx context.Context, in *SessionRequest, opts ...grpc.CallOption) (*SessionResponse, error)
 }
 
 type terminalServiceClient struct {
@@ -62,12 +64,23 @@ func (c *terminalServiceClient) RequestSession(ctx context.Context, in *SessionR
 	return out, nil
 }
 
+func (c *terminalServiceClient) MakeSessionAvailable(ctx context.Context, in *SessionRequest, opts ...grpc.CallOption) (*SessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SessionResponse)
+	err := c.cc.Invoke(ctx, TerminalService_MakeSessionAvailable_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TerminalServiceServer is the server API for TerminalService service.
 // All implementations must embed UnimplementedTerminalServiceServer
 // for forward compatibility.
 type TerminalServiceServer interface {
 	ExecuteCommand(grpc.BidiStreamingServer[CommandRequest, CommandResponse]) error
 	RequestSession(context.Context, *SessionRequest) (*SessionResponse, error)
+	MakeSessionAvailable(context.Context, *SessionRequest) (*SessionResponse, error)
 	mustEmbedUnimplementedTerminalServiceServer()
 }
 
@@ -83,6 +96,9 @@ func (UnimplementedTerminalServiceServer) ExecuteCommand(grpc.BidiStreamingServe
 }
 func (UnimplementedTerminalServiceServer) RequestSession(context.Context, *SessionRequest) (*SessionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RequestSession not implemented")
+}
+func (UnimplementedTerminalServiceServer) MakeSessionAvailable(context.Context, *SessionRequest) (*SessionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MakeSessionAvailable not implemented")
 }
 func (UnimplementedTerminalServiceServer) mustEmbedUnimplementedTerminalServiceServer() {}
 func (UnimplementedTerminalServiceServer) testEmbeddedByValue()                         {}
@@ -130,6 +146,24 @@ func _TerminalService_RequestSession_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TerminalService_MakeSessionAvailable_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TerminalServiceServer).MakeSessionAvailable(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TerminalService_MakeSessionAvailable_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TerminalServiceServer).MakeSessionAvailable(ctx, req.(*SessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // TerminalService_ServiceDesc is the grpc.ServiceDesc for TerminalService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -140,6 +174,10 @@ var TerminalService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RequestSession",
 			Handler:    _TerminalService_RequestSession_Handler,
+		},
+		{
+			MethodName: "MakeSessionAvailable",
+			Handler:    _TerminalService_MakeSessionAvailable_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
