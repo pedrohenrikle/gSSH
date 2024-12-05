@@ -32,9 +32,15 @@ gSSH is a remote connection tool built in Go, leveraging gRPC to streamline secu
     go mod download
     ```
 
+4. Setup environment variables:
+    ```sh
+    touch .env
+    ```
+    And follow the example on [`.env example`](https://github.com/pedrohenrikle/gSSH/blob/main/.env.example).
+
 ### Running the Server
 ```sh
-go run cmd/server/server.go
+go run cmd/server/server.go --port=<port>
 ```
 
 or build as:
@@ -47,7 +53,7 @@ go build -o out/server cmd/server/server.go
 
 ### Running the Client
 ```sh
-go run cmd/client/client.go
+go run cmd/client/client.go --id=<session_id> --port=<port>
 ```
 
 or build as:
@@ -58,10 +64,24 @@ go build -o out/client cmd/client/client.go
 ./out/client
 ```
 
+### Command-Line Flags and Environment Variables
+
+- #### Client Flags:
+
+    - `--id`: (Optional) Session ID to run to an existing session.
+
+    - `--port`: (Optional) Port to run the TCP connection with the server.
+
+- #### Server Flags:
+
+    - `--port`: (Optional) Determines the port to run the TCP conection.
+
+
 ## Project Structure
 - `cert/`: Contains TLS/SSL certificates;
 - `cmd/client/`: Client code to connect and interact with the server;
 - `cmd/server/`: Server code to handle client requests;
+- `pkg`: Contains packages that encapsulate different functionalities. 
 - `proto/`: Protocol buffer definitions for gRPC;
 - `pb/`: Protocol buffer auto-generated files that define data structures and service interfaces for gRPC;
 - `out/`: Directory to compiled/build binaries; 
